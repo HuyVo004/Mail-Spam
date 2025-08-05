@@ -37,7 +37,7 @@ def predict():
     vectorized_input = vectorizer.transform([processed_mail])
     prediction = model.predict(vectorized_input)
 
-    result = "📨 Đây là **email bình thường** (Ham)." if prediction[0] == 1 else "⚠️ Đây là **email spam**!"
+    result = "Đây là **email bình thường** (Ham)." if prediction[0] == 1 else "Đây là **email spam**!"
 
     return render_template('index.html', prediction=result, email=input_mail)
 

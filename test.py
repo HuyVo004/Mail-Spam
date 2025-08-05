@@ -8,80 +8,98 @@ from nltk.stem import WordNetLemmatizer
 from sklearn.model_selection import train_test_split
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.svm import SVC
-from sklearn.metrics import accuracy_score
+from sklearn.utils.class_weight import compute_class_weight
+from sklearn.metrics import accuracy_score, classification_report
 import pickle
 
-# Tải dữ liệu cần thiết từ NLTK
-nltk.download('stopwords')
-nltk.download('wordnet')
+# Tải dữ liệu NLTK
+nltk.download("stopwords")
+nltk.download("wordnet")
 
-# Khởi tạo lemmatizer và stop words
+# Khởi tạo công cụ xử lý ngôn ngữ
 lemmatizer = WordNetLemmatizer()
-stop_words = set(stopwords.words('english'))
+stop_words = set(stopwords.words("english"))
+
 
 # Hàm tiền xử lý văn bản
 def preprocess(text):
-    # Chuyển về chữ thường
     text = text.lower()
-    # Loại bỏ dấu câu
-    text = text.translate(str.maketrans('', '', string.punctuation))
-    # Tách từ và loại bỏ stop words, lemmatize
+    text = text.translate(str.maketrans("", "", string.punctuation))
     words = text.split()
     words = [lemmatizer.lemmatize(word) for word in words if word not in stop_words]
-    return ' '.join(words)
+    return " ".join(words)
 
-# Bước 1: Đọc dữ liệu
-raw_mail_data = pd.read_csv('mail_data.csv')
 
-# Bước 2: Thay thế giá trị null bằng chuỗi rỗng
-mail_data = raw_mail_data.where((pd.notnull(raw_mail_data)), '')
+# Đọc dữ liệu
+raw_mail_data = pd.read_csv("mail_data.csv")
+mail_data = raw_mail_data.where((pd.notnull(raw_mail_data)), "")
 
-# Bước 3: Gán nhãn: spam = 0, ham = 1
-mail_data.loc[mail_data['Category'] == 'spam', 'Category'] = 0
-mail_data.loc[mail_data['Category'] == 'ham', 'Category'] = 1
+# Gán nhãn: spam = 0, ham = 1
+mail_data.loc[mail_data["Category"] == "spam", "Category"] = 0
+mail_data.loc[mail_data["Category"] == "ham", "Category"] = 1
 
-# Bước 4: Tiền xử lý nội dung email
-mail_data['Message'] = mail_data['Message'].apply(preprocess)
+# Tiền xử lý nội dung
+mail_data["Message"] = mail_data["Message"].apply(preprocess)
 
-# Bước 5: Tách dữ liệu và nhãn
-X = mail_data['Message']
-Y = mail_data['Category'].astype('int')
+# Tách đặc trưng và nhãn
+X = mail_data["Message"]
+Y = mail_data["Category"].astype("int")
 
-# Bước 6: Chia tập train/test
+# In phân bố lớp
+print("Phân bố lớp:")
+print(Y.value_counts(), "\n")
+print(" Tỉ lệ phần trăm:")
+print(Y.value_counts(normalize=True) * 100)
+
+# Chia tập train/test
 X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size=0.2, random_state=3)
 
-# Bước 7: Chuyển đổi văn bản thành vector đặc trưng TF-IDF
-feature_extraction = TfidfVectorizer(min_df=1, stop_words='english', lowercase=True)
+# TF-IDF
+feature_extraction = TfidfVectorizer(min_df=1, stop_words="english", lowercase=True)
 X_train_features = feature_extraction.fit_transform(X_train)
 X_test_features = feature_extraction.transform(X_test)
 
-# Bước 8: Khởi tạo và huấn luyện mô hình SVM
-model = SVC(kernel='linear')
+# Tính toán class weights
+class_weights = compute_class_weight(
+    class_weight="balanced", classes=np.unique(Y_train), y=Y_train
+)
+weight_dict = dict(zip(np.unique(Y_train), class_weights))
+print("\nTrọng số lớp được áp dụng:", weight_dict)
+
+# Khởi tạo mô hình SVM với trọng số lớp
+model = SVC(kernel="linear", class_weight=weight_dict)
 model.fit(X_train_features, Y_train)
 
-# Bước 9: Đánh giá mô hình
-# Trên tập huấn luyện
+# Dự đoán và đánh giá
 train_predictions = model.predict(X_train_features)
-train_accuracy = accuracy_score(Y_train, train_predictions)
-print('Accuracy on training data:', train_accuracy)
-
-# Trên tập kiểm tra
 test_predictions = model.predict(X_test_features)
-test_accuracy = accuracy_score(Y_test, test_predictions)
-print('Accuracy on test data:', test_accuracy)
 
-# Bước 10: Lưu mô hình và vectorizer
-with open('model.pkl', 'wb') as model_file:
+train_accuracy = accuracy_score(Y_train, train_predictions)
+test_accuracy = accuracy_score(Y_test, test_predictions)
+
+print("\n Accuracy on training data:", train_accuracy)
+print(" Accuracy on test data:", test_accuracy)
+print(
+    "\nClassification Report:\n",
+    classification_report(Y_test, test_predictions, target_names=["Spam", "Ham"]),
+)
+
+# Lưu mô hình và vectorizer
+with open("model.pkl", "wb") as model_file:
     pickle.dump(model, model_file)
 
-with open('vectorizer.pkl', 'wb') as vec_file:
+with open("vectorizer.pkl", "wb") as vec_file:
     pickle.dump(feature_extraction, vec_file)
 
 print("Đã lưu xong model.pkl và vectorizer.pkl")
 
-# Bước 11: Kiểm tra dự đoán với email nhập từ người dùng (tuỳ chọn)
-user_input = input("Nhập nội dung email cần kiểm tra: ")
-input_mail = [preprocess(user_input)]
-input_data_features = feature_extraction.transform(input_mail)
-prediction = model.predict(input_data_features)
-print('Dự đoán:', 'Ham mail' if prediction[0] == 1 else 'Spam mail')
+# Kiểm tra dự đoán với input từ người dùng
+user_input = input("\nNhập nội dung email cần kiểm tra: ")
+processed_input = preprocess(user_input)
+
+if processed_input.strip() == "":
+    print("Không thể phân tích email: nội dung không hợp lệ hoặc không có từ có nghĩa.")
+else:
+    input_data_features = feature_extraction.transform([processed_input])
+    prediction = model.predict(input_data_features)
+    print("Dự đoán:", "Ham mail" if prediction[0] == 1 else "Spam mail")
